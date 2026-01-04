@@ -1,0 +1,4 @@
+# Thrustmaster FGT Rumble 3-in-1 (044f:b655)
+KERNEL=="event*", ATTRS{idVendor}=="044f", ATTRS{idProduct}=="b655", MODE="0660", GROUP="input"
+KERNEL=="js*", ATTRS{idVendor}=="044f", ATTRS{idProduct}=="b655", MODE="0660", GROUP="input"
+KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"

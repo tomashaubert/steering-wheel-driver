@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+captured_events.json
+input_report.json
+.gemini/
