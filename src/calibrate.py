@@ -31,15 +31,15 @@ def calibrate():
         'version': 2,
         'axes': {
             0: {'name': 'Volant', 'min': get_axis_val(0), 'max': get_axis_val(0), 'rest': get_axis_val(0)},
-            1: {'name': 'Plyn',   'min': get_axis_val(1), 'max': get_axis_val(1), 'rest': get_axis_val(1)},
-            5: {'name': 'Brzda',  'min': get_axis_val(5), 'max': get_axis_val(5), 'rest': get_axis_val(5)}
+            5: {'name': 'Plyn',   'min': get_axis_val(5), 'max': get_axis_val(5), 'rest': get_axis_val(5)},
+            1: {'name': 'Brzda',  'min': get_axis_val(1), 'max': get_axis_val(1), 'rest': get_axis_val(1)}
         }
     }
 
     steps = [
         (0, "VOLANT: Otočte nadoraz DOLEVA, pak nadoraz DOPRAVA a nechte ve STŘEDU."),
-        (1, "PLYN: Sešlápněte PLYN až na podlahu a úplně jej UVOLNĚTE."),
-        (5, "BRZDA: Sešlápněte BRZDU až na podlahu a úplně jej UVOLNĚTE.")
+        (5, "PLYN: Sešlápněte PLYN až na podlahu a úplně jej UVOLNĚTE."),
+        (1, "BRZDA: Sešlápněte BRZDU až na podlahu a úplně jej UVOLNĚTE.")
     ]
 
     for code, msg in steps:
