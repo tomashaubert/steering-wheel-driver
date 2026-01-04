@@ -147,16 +147,16 @@ def run_remapper():
                 
                 # --- XBOX MODE ---
                 if args.mode == "xbox":
-                    # Plyn (1): 255(uvolnen)..76(plny) -> 0..255
+                    # Plyn (5): 255(uvolnen)..76(plny) -> 0..255
                     # Mapujeme na RT (ABS_RZ)
-                    if event.code == 1:
+                    if event.code == 5:
                         val = map_val(event.value, GAS_HW_MAX, GAS_HW_MIN, 0, 255)
                         ui.write(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ, val)
                         if args.debug: print(f"Gas: {event.value} -> {val}")
 
-                    # Brzda (5): 255(uvolnen)..20(plny) -> 0..255
+                    # Brzda (1): 255(uvolnen)..20(plny) -> 0..255
                     # Mapujeme na LT (ABS_Z)
-                    elif event.code == 5:
+                    elif event.code == 1:
                         val = map_val(event.value, BRAKE_HW_MAX, BRAKE_HW_MIN, 0, 255)
                         ui.write(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, val)
                         if args.debug: print(f"Brake: {event.value} -> {val}")
@@ -176,10 +176,10 @@ def run_remapper():
                     if event.code == 0:
                         val = map_val(event.value, 0, 255, 0, 1024)
                         ui.write(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, val)
-                    elif event.code == 1:
+                    elif event.code == 5:
                         val = map_val(event.value, GAS_HW_MAX, GAS_HW_MIN, 0, 1024)
                         ui.write(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_GAS, val)
-                    elif event.code == 5:
+                    elif event.code == 1:
                         val = map_val(event.value, BRAKE_HW_MAX, BRAKE_HW_MIN, 0, 1024)
                         ui.write(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_BRAKE, val)
                     elif event.code in [16, 17]:
