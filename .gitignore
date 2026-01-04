@@ -3,3 +3,5 @@ __pycache__/
 captured_events.json
 input_report.json
 .gemini/
+BLOG_POST_DRAFT.md
+TECHNICAL_DEEP_DIVE.md
