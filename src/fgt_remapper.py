@@ -10,6 +10,12 @@ HW_MIN = 0
 HW_MAX = 255
 HW_CENTER = 128
 
+# Kalibrované rozsahy (zjištěno analýzou)
+GAS_HW_MIN = 76
+GAS_HW_MAX = 255
+BRAKE_HW_MIN = 20
+BRAKE_HW_MAX = 255
+
 def get_device():
     devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
     for device in devices:
@@ -23,7 +29,10 @@ def get_device():
 def map_val(val, in_min, in_max, out_min, out_max):
     """Lineární mapování hodnoty z jednoho rozsahu do druhého."""
     # Oříznutí vstupu
-    val = max(min(val, in_max), in_min)
+    # Musíme detekovat, který limit je menší pro správné oříznutí
+    true_min = min(in_min, in_max)
+    true_max = max(in_min, in_max)
+    val = max(min(val, true_max), true_min)
     
     # Výpočet pozice v rozsahu (0.0 až 1.0)
     norm = (val - in_min) / (in_max - in_min)
@@ -84,8 +93,8 @@ def create_uinput_xbox():
 
 def run_remapper():
     parser = argparse.ArgumentParser(description="Thrustmaster FGT Remapper")
-    parser.add_argument("--mode", choices=["wheel", "xbox"], default="wheel", 
-                        help="Režim emulace: 'wheel' pro nativní hry, 'xbox' pro GeForce Now (default: wheel)")
+    parser.add_argument("--mode", choices=["wheel", "xbox"], default="xbox", 
+                        help="Režim emulace: 'wheel' pro nativní hry, 'xbox' pro GeForce Now (default: xbox)")
     parser.add_argument("--debug", action="store_true", help="Vypisovat hodnoty os pro ladění")
     args = parser.parse_args()
 
@@ -144,17 +153,17 @@ def run_remapper():
                         ui.write(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, val)
                         if args.debug: print(f"Wheel: {event.value} -> {val}")
                     
-                    # Plyn (1): 255(uvolnen)..0(plny) -> 0..255
+                    # Plyn (1): 255(uvolnen)..76(plny) -> 0..255
                     # POZOR: Plyn mapujeme na RT (ABS_RZ)
                     elif event.code == 1:
-                        val = map_val(event.value, 0, 255, 255, 0) # Invert
+                        val = map_val(event.value, GAS_HW_MAX, GAS_HW_MIN, 0, 255)
                         ui.write(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ, val)
                         if args.debug: print(f"Gas: {event.value} -> {val}")
 
-                    # Brzda (5): 255(uvolnen)..0(plny) -> 0..255
+                    # Brzda (5): 255(uvolnen)..20(plny) -> 0..255
                     # Brzda mapujeme na LT (ABS_Z)
                     elif event.code == 5:
-                        val = map_val(event.value, 0, 255, 255, 0) # Invert
+                        val = map_val(event.value, BRAKE_HW_MAX, BRAKE_HW_MIN, 0, 255)
                         ui.write(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, val)
                         if args.debug: print(f"Brake: {event.value} -> {val}")
 
@@ -168,10 +177,10 @@ def run_remapper():
                         val = map_val(event.value, 0, 255, 0, 1024)
                         ui.write(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, val)
                     elif event.code == 1:
-                        val = map_val(event.value, 0, 255, 1024, 0) # Invert
+                        val = map_val(event.value, GAS_HW_MAX, GAS_HW_MIN, 0, 1024)
                         ui.write(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_GAS, val)
                     elif event.code == 5:
-                        val = map_val(event.value, 0, 255, 1024, 0) # Invert
+                        val = map_val(event.value, BRAKE_HW_MAX, BRAKE_HW_MIN, 0, 1024)
                         ui.write(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_BRAKE, val)
                     elif event.code in [16, 17]:
                         ui.write(evdev.ecodes.EV_ABS, event.code, event.value)

@@ -3,7 +3,7 @@ Description=Thrustmaster FGT Wheel Remapper
 After=graphical-session.target
 
 [Service]
-ExecStart=/usr/bin/python3 /home/tomat/Documents/Dev/steering-wheel-driver/src/fgt_remapper.py
+ExecStart=/usr/bin/python3 /home/tomat/Documents/Dev/steering-wheel-driver/src/fgt_remapper.py --mode xbox
 Restart=always
 RestartSec=5
 
