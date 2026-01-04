@@ -1,86 +1,85 @@
-# Reviving the Thrustmaster FGT: A Linux Driver Deep Dive
+# Oživení volantu Thrustmaster FGT: Technický pohled pod kapotu
 
-**Author:** Tomáš Haubert
-**Date:** January 4, 2026
+**Autor:** Tomáš Haubert  
+**Datum:** 4. ledna 2026
 
-How do you make a 15-year-old steering wheel work with modern Cloud Gaming on Linux? That was the challenge I faced with the **Thrustmaster Ferrari GT Experience (FGT) 3-in-1**.
+Jak donutit 15 let starý volant, aby fungoval s moderním Cloud Gamingem na Linuxu? To byla výzva, které jsem čelil s modelem **Thrustmaster Ferrari GT Experience (FGT) 3-in-1**.
 
-While Linux "saw" the device, it was unusable for gaming. The pedals were inverted, the ranges were incomplete, and most importantly, modern web browsers (Xbox Cloud Gaming, GeForce Now) didn't know what to do with it.
+Ačkoliv Linux zařízení „viděl“, pro hraní bylo nepoužitelné. Pedály byly invertované, rozsahy neúplné a co je nejdůležitější – moderní webové prohlížeče (Xbox Cloud Gaming, GeForce Now) si s ním nevěděly rady.
 
-Here is the technical journey of building a userspace driver in Python to solve this.
+Zde je technický popis cesty k vytvoření uživatelského ovladače v Pythonu, který tyto problémy řeší.
 
-## 1. The Hardware Analysis
+## 1. Analýza hardwaru
 
-The first step was to understand what the hardware was actually sending. Using `evtest` and a custom Python script, we grabbed the raw HID reports.
+Prvním krokem bylo pochopit, co hardware vlastně odesílá. Pomocí nástroje `evtest` a vlastního Python skriptu jsme zachytili surové HID reporty.
 
-**Device ID:** `044f:b655`
+**ID zařízení:** `044f:b655`
 
-### The "Raw" Data
-We immediately hit three problems:
+### „Surová“ data
+Okamžitě jsme narazili na tři problémy:
 
-1.  **Inverted Logic:** The pedals rested at `255` and went down to `0` when pressed. Most games expect `0` at rest and `255` (or higher) when pressed.
-2.  **Dead Zones & Limits:**
-    *   **Gas:** Pressed fully, it only reached `76` (not `0`).
-    *   **Brake:** Pressed fully, it only reached `20` (not `0`).
-    *   *Result:* In a game, you would never reach 100% throttle or braking.
-3.  **Weird Mapping:**
-    *   **Gas** was on Event Code `5` (often ABS_RZ).
-    *   **Brake** was on Event Code `1` (often ABS_Y).
+1.  **Inverzní logika:** Pedály v klidu odesílaly hodnotu `255` a při sešlápnutí klesaly k `0`. Většina her očekává `0` v klidu a `255` (nebo více) při stisku.
+2.  **Mrtvé zóny a limity:**
+    *   **Plyn:** Při plném sešlápnutí klesl jen na `76` (nikoliv na `0`).
+    *   **Brzda:** Při plném sešlápnutí klesla jen na `20` (nikoliv na `0`).
+    *   *Výsledek:* Ve hře byste nikdy nedosáhli 100 % plynu nebo brzdění.
+3.  **Zvláštní mapování:**
+    *   **Plyn** byl na kódu události `5` (často ABS_RZ).
+    *   **Brzda** byla na kódu události `1` (často ABS_Y).
 
-## 2. The Solution: Userspace Remapper
+## 2. Řešení: Userspace Remapper
 
-Instead of writing a kernel module (which is hard to maintain), I opted for a userspace approach using `python-evdev` and `uinput`. This allows us to:
-1.  **Grab** the physical device (hiding it from the OS).
-2.  **Read** raw events.
-3.  **Process/Map** the values.
-4.  **Inject** clean events into a virtual device.
+Místo psaní jaderného modulu (což je náročné na údržbu) jsem zvolil přístup v uživatelském prostoru (userspace) pomocí `python-evdev` a `uinput`. To nám umožňuje:
+1.  **Přivlastnit si (Grab)** fyzické zařízení (skrýt ho před OS).
+2.  **Číst** surové události.
+3.  **Zpracovat/Pře mapovat** hodnoty.
+4.  **Vložit** čisté události do virtuálního zařízení.
 
-### The Algorithm
+### Algoritmus
 
-We implemented a linear mapping function with clamping to handle the weird hardware ranges:
+Implementovali jsme lineární mapovací funkci s ořezem (clamping) pro vyřešení podivných hardwarových rozsahů:
 
 ```python
 def map_val(val, in_min, in_max, out_min, out_max):
-    # Clamp input to hardware limits
+    # Oříznutí vstupu na hardwarové limity
     true_min = min(in_min, in_max)
     true_max = max(in_min, in_max)
     val = max(min(val, true_max), true_min)
     
-    # Normalize position (0.0 - 1.0)
+    # Normalizace pozice (0.0 - 1.0)
     norm = (val - in_min) / (in_max - in_min)
     
-    # Scale to output
+    # Škálování na výstup
     return int(out_min + norm * (out_max - out_min))
 ```
 
-This simple function solves both the inversion (by swapping min/max) and the range calibration (by using 76/20 as the limits).
+Tato jednoduchá funkce řeší jak inverzi (prohozením min/max), tak kalibraci rozsahu (použitím 76/20 jako limitů).
 
-## 3. The "Xbox Mode" Breakthrough
+## 3. Průlom s „Xbox Mode“
 
-The biggest hurdle was Cloud Gaming. Browsers rely on the **standard Gamepad API**. Old DirectInput wheels often don't map correctly to this standard.
+Největší překážkou byl Cloud Gaming. Prohlížeče spoléhají na standardní **Gamepad API**. Staré volanty s protokolem DirectInput se na tento standard často nemapují správně.
 
-To fix this, we created a virtual **Xbox 360 Controller** instead of a generic joystick.
+Abychom to vyřešili, vytvořili jsme místo obecného joysticku virtuální **ovladač Xbox 360**.
 
-*   **Wheel (Axis 0)** -> Mapped to Left Stick X (`ABS_X`)
-*   **Gas (Axis 5)** -> Mapped to Right Trigger (`ABS_RZ`)
-*   **Brake (Axis 1)** -> Mapped to Left Trigger (`ABS_Z`)
+*   **Volant (Osa 0)** -> Mapován na Levou páčku X (`ABS_X`)
+*   **Plyn (Osa 5)** -> Mapován na Pravý Trigger (`ABS_RZ`)
+*   **Brzda (Osa 1)** -> Mapována na Levý Trigger (`ABS_Z`)
 
-This was the magic bullet. As soon as we emulated an XInput device, Xbox Cloud Gaming instantly recognized the controller, and the triggers provided precise analog control for gas and brake.
+To byla magická kulka. Jakmile jsme emulovali XInput zařízení, Xbox Cloud Gaming okamžitě rozpoznal ovladač a triggery poskytly přesné analogové ovládání plynu a brzdy.
 
-## 4. Automation
+## 4. Automatizace
 
-To make it a true "driver," it needs to be invisible. We used `systemd` to start the remapper automatically.
+Aby se jednalo o skutečný „driver“, musí být neviditelný. Použili jsme `systemd` pro automatické spuštění remapperu.
 
-**Service File (`fgt-remapper.service`):**
+**Soubor služby (`fgt-remapper.service`):**
 ```ini
 [Service]
-ExecStart=/usr/bin/python3 /path/to/driver.py --mode xbox
+ExecStart=/usr/bin/python3 /cesta/k/driveru.py --mode xbox
 Restart=always
 ```
 
-## Conclusion
+## Závěr
 
-With about 200 lines of Python, we turned e-waste into a fully functional cloud gaming controller. The latency is negligible, and the experience is on par with modern hardware.
+S přibližně 200 řádky Pythonu jsme proměnili potenciální elektroodpad v plně funkční ovladač pro cloudové hraní. Latence je zanedbatelná a zážitek je srovnatelný s moderním hardwarem.
 
-You can find the full source code and installation instructions on my GitHub:
-[Link to Repository]
+Celý zdrojový kód a návod k instalaci najdete na mém GitHubu.
