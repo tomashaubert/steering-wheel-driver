@@ -3,23 +3,49 @@ import json
 import os
 import sys
 import argparse
+import time
 
-# --- KONSTANTY PRO HARDWARE ---
-# Thrustmaster FGT má 8-bit senzory
+# --- HARDWARE CONSTANTS ---
+# Thrustmaster FGT has 8-bit sensors
 HW_MIN = 0
 HW_MAX = 255
 HW_CENTER = 128
 
-# Kalibrované rozsahy (zjištěno analýzou)
-GAS_HW_MIN = 76
-GAS_HW_MAX = 255
-BRAKE_HW_MIN = 20
-BRAKE_HW_MAX = 255
+# Default calibrated ranges (sensible defaults if no config is found)
+DEFAULT_CALIBRATION = {
+    "axes": {
+        "0": {"name": "Wheel", "min": 0, "max": 255},
+        "5": {"name": "Gas",   "min": 76, "max": 255},
+        "1": {"name": "Brake", "min": 20, "max": 255}
+    }
+}
+
+CONFIG_PATH = os.path.expanduser("~/.fgt_calibration.json")
+
+def load_calibration():
+    """Loads calibration from JSON or returns defaults."""
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+                # Convert keys to int if they are strings from JSON
+                config['axes'] = {int(k): v for k, v in config['axes'].items()}
+                print(f"[*] Loaded calibration from {CONFIG_PATH}")
+                return config
+        except Exception as e:
+            print(f"[!] Error loading calibration: {e}. Using defaults.")
+    return DEFAULT_CALIBRATION
 
 def get_device():
-    devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
+    """Finds the Thrustmaster FGT device, ignoring virtual ones."""
+    try:
+        devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
+    except PermissionError:
+        print("[!] Permission denied when listing devices. Are you in the 'input' group?")
+        sys.exit(1)
+
     for device in devices:
-        # Ignorujeme virtuální zařízení
+        # Ignore virtual devices created by this script or others
         if "Linux Driver" in device.name or "X-Box" in device.name:
             continue
         if "Thrustmaster" in device.name:
@@ -27,21 +53,24 @@ def get_device():
     return None
 
 def map_val(val, in_min, in_max, out_min, out_max):
-    """Lineární mapování hodnoty z jednoho rozsahu do druhého."""
-    # Oříznutí vstupu
-    # Musíme detekovat, který limit je menší pro správné oříznutí
+    """Linear mapping of a value from one range to another."""
+    # Clamp input to the defined range
     true_min = min(in_min, in_max)
     true_max = max(in_min, in_max)
     val = max(min(val, true_max), true_min)
     
-    # Výpočet pozice v rozsahu (0.0 až 1.0)
+    # Calculate position in range (0.0 to 1.0)
+    # Avoid division by zero
+    if in_max == in_min:
+        return out_min
+        
     norm = (val - in_min) / (in_max - in_min)
     
-    # Přepočet na výstupní rozsah
+    # Map to output range
     return int(out_min + norm * (out_max - out_min))
 
 def create_uinput_wheel():
-    """Vytvoří virtuální volant (původní režim - Thrustmaster FGT)"""
+    """Creates a virtual steering wheel (Native mode - Thrustmaster FGT)"""
     v_abs = [
         (evdev.ecodes.ABS_X,     evdev.AbsInfo(value=512, min=0, max=1024, fuzz=0, flat=0, resolution=0)),
         (evdev.ecodes.ABS_GAS,   evdev.AbsInfo(value=0,   min=0, max=1024, fuzz=0, flat=0, resolution=0)),
@@ -49,7 +78,7 @@ def create_uinput_wheel():
         (evdev.ecodes.ABS_HAT0X, evdev.AbsInfo(value=0,   min=-1, max=1,   fuzz=0, flat=0, resolution=0)),
         (evdev.ecodes.ABS_HAT0Y, evdev.AbsInfo(value=0,   min=-1, max=1,   fuzz=0, flat=0, resolution=0)),
     ]
-    # Povolíme všechna tlačítka, která FGT má (304..316 a další)
+    # Enable buttons FGT has (304..320 range)
     v_keys = list(range(304, 320))
 
     return evdev.UInput(events={evdev.ecodes.EV_KEY: v_keys, evdev.ecodes.EV_ABS: v_abs}, 
@@ -57,10 +86,8 @@ def create_uinput_wheel():
                         vendor=0x044f, product=0xb655)
 
 def create_uinput_xbox():
-    """Vytvoří virtuální Xbox 360 ovladač (pro GeForce Now / Cloud)"""
+    """Creates a virtual Xbox 360 controller (for Cloud Gaming / modern titles)"""
     # Xbox 360 Controller: Vendor=0x045e, Product=0x028e
-    # Důležité: Definujeme přesně ty osy, které XInput používá.
-    
     v_abs = [
         (evdev.ecodes.ABS_X,   evdev.AbsInfo(value=0, min=-32768, max=32767, fuzz=16, flat=128, resolution=0)), # Left Stick X
         (evdev.ecodes.ABS_Y,   evdev.AbsInfo(value=0, min=-32768, max=32767, fuzz=16, flat=128, resolution=0)), # Left Stick Y
@@ -72,14 +99,14 @@ def create_uinput_xbox():
         (evdev.ecodes.ABS_HAT0Y, evdev.AbsInfo(value=0, min=-1, max=1, fuzz=0, flat=0, resolution=0)),
     ]
     
-    # Standardní Xbox tlačítka (ABXY, LB, RB, Back, Start, Guide, Thumbs)
+    # Standard Xbox buttons
     v_keys = [
-        evdev.ecodes.BTN_SOUTH, # A
-        evdev.ecodes.BTN_EAST,  # B
-        evdev.ecodes.BTN_NORTH, # X (někdy značen jako WEST v evdev?) - Ne, NORTH je Y, WEST je X na Xboxu.
-        evdev.ecodes.BTN_WEST,  # Y
-        evdev.ecodes.BTN_TL,    # LB
-        evdev.ecodes.BTN_TR,    # RB
+        evdev.ecodes.BTN_SOUTH,  # A
+        evdev.ecodes.BTN_EAST,   # B
+        evdev.ecodes.BTN_NORTH,  # Y
+        evdev.ecodes.BTN_WEST,   # X
+        evdev.ecodes.BTN_TL,     # LB
+        evdev.ecodes.BTN_TR,     # RB
         evdev.ecodes.BTN_SELECT, # Back
         evdev.ecodes.BTN_START,  # Start
         evdev.ecodes.BTN_MODE,   # Guide
@@ -94,93 +121,107 @@ def create_uinput_xbox():
 def run_remapper():
     parser = argparse.ArgumentParser(description="Thrustmaster FGT Remapper")
     parser.add_argument("--mode", choices=["wheel", "xbox"], default="xbox", 
-                        help="Režim emulace: 'wheel' pro nativní hry, 'xbox' pro GeForce Now (default: xbox)")
-    parser.add_argument("--debug", action="store_true", help="Vypisovat hodnoty os pro ladění")
+                        help="Emulation mode: 'wheel' for native games, 'xbox' for Cloud Gaming (default: xbox)")
+    parser.add_argument("--debug", action="store_true", help="Print axis values for debugging")
+    parser.add_argument("--wait", action="store_true", help="Wait for device to be connected")
     args = parser.parse_args()
 
-    source_device = get_device()
-    if not source_device:
-        print("Chyba: Volant Thrustmaster FGT nebyl nalezen!")
-        return
+    config = load_calibration()
+    
+    source_device = None
+    while not source_device:
+        source_device = get_device()
+        if not source_device:
+            if args.wait:
+                print("\r[*] Waiting for Thrustmaster FGT device...", end="", flush=True)
+                time.sleep(2)
+                continue
+            else:
+                print("[!] Error: Thrustmaster FGT device not found!")
+                return
+    
+    if args.wait: print("\n[*] Device found!")
+    print(f"[*] Steering wheel: {source_device.name} ({source_device.path})")
 
-    # Vytvoření virtuálního zařízení
+    # Create virtual device
     try:
         if args.mode == "xbox":
             ui = create_uinput_xbox()
-            print(f"Mód: XBOX 360 (Vhodné pro GeForce Now)")
+            print(f"[*] Mode: XBOX 360 (Recommended for Cloud Gaming)")
         else:
             ui = create_uinput_wheel()
-            print(f"Mód: WHEEL (Nativní volant)")
+            print(f"[*] Mode: WHEEL (Native Steering Wheel)")
     except Exception as e:
-        print(f"Chyba při vytváření virtuálního zařízení: {e}")
+        print(f"[!] Error creating virtual device: {e}")
         return
 
-    print(f"Virtuální ovladač spuštěn: {ui.name}")
-    print("Ukončete pomocí Ctrl+C.")
+    print(f"[*] Virtual driver active: {ui.name}")
+    print("[*] Press Ctrl+C to stop.")
     
     try:
         source_device.grab()
         
-        # --- MAPOVÁNÍ TLAČÍTEK ---
-        # Mapování FGT kódů (key) na Xbox kódy (val)
-        # FGT: A=304, B=305, C=306, X=307, L1=308, R1=309, L2=310, R2=311, SE=312, ST=313
-        # Xbox: A=BTN_SOUTH, B=BTN_EAST, X=BTN_WEST, Y=BTN_NORTH...
-        
-        # Oprava mapování podle testu:
-        # FGT tlacitka 304..307 jsou hlavni celni tlacitka (Krizek, Kolecko, Ctverec, Trojuhelnik)
+        # --- BUTTON MAPPING ---
+        # Map FGT codes to Xbox buttons
         btn_map_xbox = {
-            304: evdev.ecodes.BTN_SOUTH, # Krizek -> A
-            305: evdev.ecodes.BTN_EAST,  # Kolecko -> B
-            306: evdev.ecodes.BTN_WEST,  # Ctverec -> X
-            307: evdev.ecodes.BTN_NORTH, # Trojuhelnik -> Y
+            304: evdev.ecodes.BTN_SOUTH, # Cross -> A
+            305: evdev.ecodes.BTN_EAST,  # Circle -> B
+            306: evdev.ecodes.BTN_WEST,  # Square -> X
+            307: evdev.ecodes.BTN_NORTH, # Triangle -> Y
             308: evdev.ecodes.BTN_TL,    # L1 -> LB
             309: evdev.ecodes.BTN_TR,    # R1 -> RB
-            310: evdev.ecodes.BTN_THUMBL, # L2 -> L3 (nebo kamkoliv jinam, Xbox nema tlacitka L2/R2, ma triggery)
+            310: evdev.ecodes.BTN_THUMBL, # L2 -> L3
             311: evdev.ecodes.BTN_THUMBR, # R2 -> R3
             312: evdev.ecodes.BTN_SELECT, # Select -> Back
             313: evdev.ecodes.BTN_START,  # Start -> Start
-            316: evdev.ecodes.BTN_MODE    # Mode -> Guide
+            316: evdev.ecodes.BTN_MODE    # Mode -> Guide (Home)
         }
+
+        # Axis codes
+        WHEEL_AXIS = 0
+        GAS_AXIS = 5
+        BRAKE_AXIS = 1
 
         for event in source_device.read_loop():
             if event.type == evdev.ecodes.EV_ABS:
                 
-                # --- XBOX MODE ---
+                # Calibration values
+                c_wheel = config['axes'][WHEEL_AXIS]
+                c_gas   = config['axes'][GAS_AXIS]
+                c_brake = config['axes'][BRAKE_AXIS]
+
                 if args.mode == "xbox":
-                    # Plyn (5): 255(uvolnen)..76(plny) -> 0..255
-                    # Mapujeme na RT (ABS_RZ)
-                    if event.code == 5:
-                        val = map_val(event.value, GAS_HW_MAX, GAS_HW_MIN, 0, 255)
+                    # Gas: Map to RT (ABS_RZ)
+                    if event.code == GAS_AXIS:
+                        val = map_val(event.value, c_gas['max'], c_gas['min'], 0, 255)
                         ui.write(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ, val)
                         if args.debug: print(f"Gas: {event.value} -> {val}")
 
-                    # Brzda (1): 255(uvolnen)..20(plny) -> 0..255
-                    # Mapujeme na LT (ABS_Z)
-                    elif event.code == 1:
-                        val = map_val(event.value, BRAKE_HW_MAX, BRAKE_HW_MIN, 0, 255)
+                    # Brake: Map to LT (ABS_Z)
+                    elif event.code == BRAKE_AXIS:
+                        val = map_val(event.value, c_brake['max'], c_brake['min'], 0, 255)
                         ui.write(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, val)
                         if args.debug: print(f"Brake: {event.value} -> {val}")
 
-                    # Volant (0): 0..255 -> -32768..32767
-                    elif event.code == 0:
-                        val = map_val(event.value, 0, 255, -32768, 32767)
+                    # Wheel: Map to Left Stick X (ABS_X)
+                    elif event.code == WHEEL_AXIS:
+                        val = map_val(event.value, c_wheel['min'], c_wheel['max'], -32768, 32767)
                         ui.write(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, val)
                         if args.debug: print(f"Wheel: {event.value} -> {val}")
 
-                    # HAT Switch (16, 17) -> Mapujeme 1:1
+                    # D-Pad / HAT Switch (16, 17) -> Map 1:1
                     elif event.code in [16, 17]:
                         ui.write(evdev.ecodes.EV_ABS, event.code, event.value)
 
-                # --- WHEEL MODE ---
-                else:
-                    if event.code == 0:
-                        val = map_val(event.value, 0, 255, 0, 1024)
+                else: # WHEEL MODE
+                    if event.code == WHEEL_AXIS:
+                        val = map_val(event.value, c_wheel['min'], c_wheel['max'], 0, 1024)
                         ui.write(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, val)
-                    elif event.code == 5:
-                        val = map_val(event.value, GAS_HW_MAX, GAS_HW_MIN, 0, 1024)
+                    elif event.code == GAS_AXIS:
+                        val = map_val(event.value, c_gas['max'], c_gas['min'], 0, 1024)
                         ui.write(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_GAS, val)
-                    elif event.code == 1:
-                        val = map_val(event.value, BRAKE_HW_MAX, BRAKE_HW_MIN, 0, 1024)
+                    elif event.code == BRAKE_AXIS:
+                        val = map_val(event.value, c_brake['max'], c_brake['min'], 0, 1024)
                         ui.write(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_BRAKE, val)
                     elif event.code in [16, 17]:
                         ui.write(evdev.ecodes.EV_ABS, event.code, event.value)
@@ -189,19 +230,18 @@ def run_remapper():
 
             elif event.type == evdev.ecodes.EV_KEY:
                 if args.mode == "xbox":
-                    # Přemapování tlačítek
                     target = btn_map_xbox.get(event.code)
                     if target:
                         ui.write(evdev.ecodes.EV_KEY, target, event.value)
                         ui.syn()
                         if args.debug: print(f"Button: {event.code} -> {target} ({event.value})")
                 else:
-                    # Wheel mode: posíláme jak je
+                    # Wheel mode: forward as is
                     ui.write(evdev.ecodes.EV_KEY, event.code, event.value)
                     ui.syn()
 
     except KeyboardInterrupt:
-        print("\nUkončuji ovladač...")
+        print("\n[*] Stopping driver...")
     finally:
         try:
             source_device.ungrab()

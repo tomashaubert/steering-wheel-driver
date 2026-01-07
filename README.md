@@ -4,100 +4,82 @@
 ![Python](https://img.shields.io/badge/python-3.x-yellow.svg)
 ![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)
 
-A userspace driver and remapper for the **Thrustmaster Ferrari GT Experience Rumble 3-in-1** steering wheel on Linux. 
+A userspace driver and remapper for the **Thrustmaster Ferrari GT Experience Rumble 3-in-1** steering wheel on Linux.
 
-This project solves common issues with this older hardware on modern Linux systems, making it fully compatible with **Xbox Cloud Gaming (xCloud)**, **GeForce Now**, and native Linux titles that expect an Xbox controller.
+This project makes this older hardware fully compatible with **Xbox Cloud Gaming (xCloud)**, **GeForce Now**, and native Linux titles by emulating a standard Xbox 360 controller or a generic steering wheel.
 
 ## 🚀 Key Features
 
-*   **Xbox 360 Emulation:** Tricks the system into thinking the wheel is a standard Xbox 360 controller (XInput), ensuring compatibility with almost all modern games and cloud streaming services.
-*   **Pedal Fixes:**
-    *   **Inverted Logic:** Handles pedals that rest at 255 and go to 0.
-    *   **Deadzone Calibration:** Automatically maps the active physical range (e.g., Gas 76-255) to the full logical range (0-100%).
-    *   **Split Axes:** Ensures Gas and Brake act as independent triggers (RT/LT) rather than a combined axis.
-*   **Plug & Play:** Can run as a systemd service that automatically grabs the device when plugged in.
+* **Xbox 360 Emulation (XInput):** Ensures out-of-the-box compatibility with cloud streaming services and modern games.
+* **Dynamic Calibration:** Includes a calibration tool to measure your specific wheel/pedal ranges and save them.
+* **Pedal Logic Correction:** Handles inverted pedal logic and ensures Gas and Brake act as independent triggers (RT/LT).
+* **Auto-Wait Mode:** The driver can wait for the device to be plugged in, making it ideal for background services.
+* **Plug & Play:** Automated setup script for udev rules and systemd services.
 
-## 🛠️ Requirements
+## ⚙️ Installation & Setup
 
-*   Linux OS
-*   Python 3
-*   `uinput` kernel module (standard on most distros)
+### 1. Fast Setup (Recommended)
+
+Clone the repository and run the automated setup script:
 
 ```bash
-# Install dependencies
-sudo apt install python3-pip
-pip3 install -r requirements.txt
-```
-
-## ⚙️ Installation
-
-### 1. Clone the Repository
-```bash
-git clone https://github.com/yourusername/steering-wheel-driver.git
+git clone https://github.com/thaubert/steering-wheel-driver.git
 cd steering-wheel-driver
+./setup.sh
 ```
 
-### 2. Setup Udev Rules
-To access the hardware and create virtual devices without root privileges:
+*This script will install udev rules (so you don't need sudo) and can set up a systemd service for you.*
+
+### 2. Install Dependencies
 
 ```bash
-sudo cp 99-thrustmaster-fgt.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules
-sudo udevadm trigger
+pip install .
 ```
 
-### 3. Usage (Manual)
-You can run the driver directly from the terminal. This is useful for testing.
+## 🔧 Calibration
+
+Every Thrustmaster FGT unit might have slightly different sensor ranges. To get the best experience, run the calibration tool:
+
+```bash
+# Run the calibration wizard
+fgt-calibrate
+```
+
+Follow the on-screen instructions. This will save a `~/.fgt_calibration.json` file which the driver will load automatically.
+
+## 🎮 Usage
+
+### Manual Start
 
 ```bash
 # Xbox 360 Mode (Recommended for Cloud Gaming)
-python3 src/fgt_remapper.py --mode xbox
+fgt-remapper --mode xbox
 
-# Native Wheel Mode (Legacy)
-python3 src/fgt_remapper.py --mode wheel
+# Native Wheel Mode
+fgt-remapper --mode wheel
+
+# Wait for device to be plugged in
+fgt-remapper --wait
 ```
 
-*Note: The script will "grab" the physical device, so no other app will see the raw, broken input. Only the corrected virtual device will be visible.*
+### Background Service
 
-### 4. Setup Systemd Service (Auto-start)
-To have the driver start automatically in the background:
+If you enabled the systemd service during `setup.sh`, the driver will start automatically when you log in.
 
-1.  Edit `fgt-remapper.service` and update the `ExecStart` path to match your installation:
-    ```ini
-    ExecStart=/usr/bin/python3 /home/YOUR_USER/path/to/steering-wheel-driver/src/fgt_remapper.py --mode xbox
-    ```
-2.  Install and enable the user service:
-    ```bash
-    mkdir -p ~/.config/systemd/user/
-    cp fgt-remapper.service ~/.config/systemd/user/
-    systemctl --user daemon-reload
-    systemctl --user enable --now fgt-remapper.service
-    ```
+* **Start:** `systemctl --user start fgt-remapper.service`
+* **Status:** `systemctl --user status fgt-remapper.service`
+* **Logs:** `journalctl --user -u fgt-remapper.service -f`
 
-## 🔧 Calibration & Troubleshooting
+## 🛠️ Technical Details
 
-### Axis Mapping (Technical Details)
-Through reverse engineering, we found the following mapping for this specific model (ID `044f:b655`):
-
-*   **Wheel:** Axis 0 (ABS_X)
-*   **Gas Pedal:** Axis 5 (Mapped to Xbox Right Trigger)
-*   **Brake Pedal:** Axis 1 (Mapped to Xbox Left Trigger)
-
-### Recalibration
-The script currently uses hardcoded calibration values found to be optimal for the tested unit:
-*   **Gas:** 76 (Full) to 255 (Released)
-*   **Brake:** 20 (Full) to 255 (Released)
-
-If your pedals behave differently, you can modify the constants `GAS_HW_MIN` and `BRAKE_HW_MIN` at the top of `src/fgt_remapper.py`.
-
-To check your raw values, use the provided debug tool:
-```bash
-python3 src/debug_device.py
-```
+* **Device ID:** `044f:b655`
+* **Library:** Uses `python-evdev` for userspace input handling and `uinput` for virtual device creation.
+* **Calibration:** Maps raw 8-bit values (0-255) to High-res 16rd-bit virtual axes for smooth control.
 
 ## 📄 License
+
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 👤 Author
-**Tomáš Haubert**  
-<info@tomashaubert.cz>
+
+**Tomáš Haubert** - [info@tomashaubert.cz](mailto:info@tomashaubert.cz)

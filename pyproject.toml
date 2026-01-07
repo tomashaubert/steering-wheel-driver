@@ -1,0 +1,28 @@
+[project]
+name = "steering-wheel-driver"
+version = "0.1.0"
+description = "Linux userspace driver and remapper for Thrustmaster Ferrari GT Experience steering wheel."
+readme = "README.md"
+requires-python = ">=3.7"
+license = {text = "MIT"}
+authors = [
+    {name = "Tomáš Haubert", email = "info@tomashaubert.cz"}
+]
+dependencies = [
+    "evdev>=1.6.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/thaubert/steering-wheel-driver"
+"Bug Tracker" = "https://github.com/thaubert/steering-wheel-driver/issues"
+
+[project.scripts]
+fgt-remapper = "fgt_remapper:run_remapper"
+fgt-calibrate = "calibrate:calibrate"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-dir]
+"" = "src"
